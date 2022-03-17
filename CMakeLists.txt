@@ -81,7 +81,7 @@ endif()
 # find dependencies
 if (${UNIX})
 
-    find_package(Boost 1.71 REQUIRED COMPONENTS filesystem python3 system program_options)
+    find_package(Boost 1.71 REQUIRED COMPONENTS filesystem python system program_options)
 
     find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
 
