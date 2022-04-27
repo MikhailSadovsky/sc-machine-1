@@ -177,7 +177,7 @@ class ScJsonSocketHandler(websocket.WebSocketHandler):
 
     return True
 
-  def makeTemplate(self, triples, is_search):
+  def makeTemplate(self, triples):
 
     def convert_value(value):
 
@@ -201,25 +201,19 @@ class ScJsonSocketHandler(websocket.WebSocketHandler):
       src = convert_value(triple[0])
       edg = convert_value(triple[1])
       trg = convert_value(triple[2])
-
-      if is_search:
-        # check options
-        is_required = True
-        if len(triple) == 4:
-          options = triple[3]
-        templ.Triple(src, edg, trg)
-      else:
-        templ.Triple(src, edg, trg)
+      templ.Triple(src, edg, trg)
 
     return templ
 
   def handleTemplateSearch(self, ctx, payload):
 
     templ = None
-    if isinstance(payload, str):
-      templ = ctx.HelperBuildTemplate(payload)
+    params = {}
+    if 'templ' in payload:
+      templ = self.buildTemplate(ctx, payload['templ'])
+      params = payload['params']
     else:
-      templ = self.makeTemplate(payload, True)
+      templ = self.buildTemplate(ctx, payload)
 
     # run search
     search_result = ctx.HelperSearchTemplate(templ)
@@ -242,11 +236,11 @@ class ScJsonSocketHandler(websocket.WebSocketHandler):
     
     templ = None
     params = {}
-    if isinstance(payload, str):
-      templ = ctx.HelperBuildTemplate(payload)
-    else:
-      templ = self.makeTemplate(payload["templ"], False)
+    if 'templ' in payload:
+      templ = self.buildTemplate(ctx, payload['templ'])
       params = payload['params']
+    else:
+      templ = self.buildTemplate(ctx, payload)
 
     templ_params = ScTemplateParams()
     for alias, value in params.items():
@@ -363,3 +357,22 @@ class ScJsonSocketHandler(websocket.WebSocketHandler):
         result.append(evt.GetID())
 
     return result
+
+  def buildTemplate(self, ctx, templPayload):
+
+    if isinstance(templPayload, str):
+      # build from SCs
+      return ctx.HelperBuildTemplate(templPayload)
+    elif 'type' in templPayload:
+      type = templPayload['type']
+      if type == 'addr':
+        # build from SC-structure ScAddr
+        return ctx.HelperBuildTemplate(ScAddr(templPayload['value']))
+      elif type == 'idtf':
+        # build from SC-structure identifier
+        addr = ctx.HelperResolveSystemIdtf(templPayload['value'], ScType.Unknown)
+        return ctx.HelperBuildTemplate(addr)
+    else:
+      # build from template triples
+      return self.makeTemplate(templPayload)
+
