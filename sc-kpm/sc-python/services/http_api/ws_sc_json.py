@@ -83,6 +83,8 @@ class ScJsonSocketHandler(websocket.WebSocketHandler):
         status = True
       else:
         response_payload = "Unsupported request type: {}".format(request_type)
+    except ValueError as err:
+      response_payload = str(err)
     except RuntimeError as ex:
       response_payload = str(ex).split('File')[0]
       print("Unexpected error:", response_payload)
@@ -367,10 +369,20 @@ class ScJsonSocketHandler(websocket.WebSocketHandler):
       type = templPayload['type']
       if type == 'addr':
         # build from SC-structure ScAddr
-        return ctx.HelperBuildTemplate(ScAddr(templPayload['value']))
+        addr_value = templPayload['value']
+        addr = ScAddr(addr_value)
+        type = ctx.GetElementType(addr)
+        if type.IsUnknown():
+          raise ValueError(f"template with addr value {addr_value} doesn't exist")
+        elif not type == ScType.NodeConstStruct:
+          raise ValueError(f"element with addr value {addr_value} isn't structure")
+        return ctx.HelperBuildTemplate(addr)
       elif type == 'idtf':
         # build from SC-structure identifier
-        addr = ctx.HelperResolveSystemIdtf(templPayload['value'], ScType.Unknown)
+        idtf = templPayload['value']
+        addr = ctx.HelperResolveSystemIdtf(idtf, ScType.Unknown)
+        if not addr.IsValid():
+          raise ValueError(f"template with identifier {idtf} doesn't exist")
         return ctx.HelperBuildTemplate(addr)
     else:
       # build from template triples
