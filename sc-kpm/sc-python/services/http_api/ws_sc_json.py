@@ -246,7 +246,26 @@ class ScJsonSocketHandler(websocket.WebSocketHandler):
 
     templ_params = ScTemplateParams()
     for alias, value in params.items():
-      templ_params.Add(alias, ScAddr(value))
+      if isinstance(value, str):
+        addr = ctx.HelperResolveSystemIdtf(value, ScType.Unknown)
+        if not addr.IsValid():
+          raise ValueError(f"element with identifier {value} doesn't exist")
+        templ_params.Add(alias, addr)
+      elif isinstance(value, int):
+        templ_params.Add(alias, ScAddr(value))
+      else:
+        contentType = value['type']
+        data = value['data']
+
+        if contentType == 'float':
+          data = float(data)
+        elif contentType == 'int':
+          data = int(data)
+        elif contentType == 'string':
+          data = str(data)
+        link = ctx.CreateLink()
+        ctx.SetLinkContent(link, data)
+        templ_params.Add(alias, link)
 
     # run search
     gen_result = ctx.HelperGenTemplate(templ, templ_params)
