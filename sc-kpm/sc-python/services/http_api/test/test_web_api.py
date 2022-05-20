@@ -91,7 +91,7 @@ class WsJsonApiTest(testing.AsyncTestCase):
     return json.loads(response)
 
   @gen.coroutine
-  def cmd_search_template(self, client, params):
+  def cmd_search_template(self, client, template, params=None):
 
     def convert_value(v):
       if isinstance(v, ScAddr):
@@ -110,32 +110,49 @@ class WsJsonApiTest(testing.AsyncTestCase):
           'value': v
       }
 
-    payload = []
-    for p in params:
-      item = []
-      self.assertTrue(len(p) >= 3)
-      for i in p[:3]:
-        v = None
-        if type(i) is list:
-          self.assertEqual(len(i), 2)
-          v = convert_value(i[0])
-          v['alias'] = i[1]
-        else:
-          v = convert_value(i)
-        item.append(v)
-      
-      # append options
-      if len(p) == 4:
-        item.append(p[-1])
+    template_payload = []
+    payload = {}
+    if isinstance(template, list):
+      for p in template:
+        item = []
+        self.assertTrue(len(p) >= 3)
+        for i in p[:3]:
+          v = None
+          if type(i) is list:
+            self.assertEqual(len(i), 2)
+            v = convert_value(i[0])
+            v['alias'] = i[1]
+          else:
+            v = convert_value(i)
+          item.append(v)
 
-      payload.append(item)
+        # append options
+        if len(p) == 4:
+          item.append(p[-1])
 
+        template_payload.append(item)
+    elif isinstance(template, str):
+      template_payload = {
+        'type': 'idtf',
+        'value': template
+      }
+    else:
+      template_payload = {
+        'type': 'addr',
+        'value': template
+      }
+
+    if params:
+      payload['templ'] = template_payload
+      payload['params'] = params
+    else:
+      payload = template_payload
     client.write_message(self.makeRequest(1, 'search_template', payload))
     response = yield client.read_message()
     return json.loads(response)
 
   @gen.coroutine
-  def cmd_generate_template(self, client, params, repl):
+  def cmd_generate_template(self, client, template, params=None):
 
     def convert_value(v):
       if isinstance(v, ScAddr):
@@ -154,25 +171,42 @@ class WsJsonApiTest(testing.AsyncTestCase):
           'value': v
       }
 
-    triples = []
-    for p in params:
-      item = []
-      self.assertEqual(len(p), 3)
-      for i in p:
-        v = None
-        if type(i) is list:
-          self.assertEqual(len(i), 2)
-          v = convert_value(i[0])
-          v['alias'] = i[1]
-        else:
-          v = convert_value(i)
-        item.append(v)
+    payload = {}
+    if isinstance(template, list):
+      triples = []
+      for p in template:
+        item = []
+        self.assertEqual(len(p), 3)
+        for i in p:
+          v = None
+          if type(i) is list:
+            self.assertEqual(len(i), 2)
+            v = convert_value(i[0])
+            v['alias'] = i[1]
+          else:
+            v = convert_value(i)
+          item.append(v)
 
-      triples.append(item)
+        triples.append(item)
+        payload = triples
+    elif isinstance(template, str):
+      payload = {
+        'type': 'idtf',
+        'value': template
+      }
+    else:
+      payload = {
+        'type': 'addr',
+        'value': template
+      }
 
-    client.write_message(self.makeRequest(1, 'generate_template', {
-        'templ': triples, 'params': repl
-    }))
+    if params:
+      client.write_message(self.makeRequest(1, 'generate_template', {
+          'templ': payload,
+          'params': params
+      }))
+    else:
+      client.write_message(self.makeRequest(1, 'generate_template', payload))
     response = yield client.read_message()
     return json.loads(response)
 
@@ -468,6 +502,214 @@ class WsJsonApiTest(testing.AsyncTestCase):
     self.assertTrue(elements[5] in _edges_list)
 
   @testing.gen_test
+  def test_template_search_by_struct(self):
+    client = yield self.make_connection()
+    self.assertIsNotNone(client)
+    test_template_idtf = 'test_template_0'
+    payload = [
+      {
+        "command": "resolve",
+        "idtf": "_node",
+        "elType": ScType.NodeVar.ToInt()
+      },
+      {
+        "command": "resolve",
+        "idtf": test_template_idtf,
+        "elType": ScType.NodeConstStruct.ToInt()
+      }
+    ]
+
+    # create var for template with _node alias and template struct node
+    client.write_message(self.makeRequest(1, 'keynodes', payload))
+    response = yield client.read_message()
+
+    resObj = json.loads(response)
+    keynode = resObj['payload'][0]
+    test_template_value = resObj['payload'][1]
+    self.assertTrue(resObj['status'])
+    self.assertNotEqual(keynode, 0)
+    self.assertNotEqual(test_template_value, 0)
+
+    keynode = ScAddr(keynode)
+    test_template = ScAddr(test_template_value)
+
+    # create elements for template search and search result construction
+    params = [
+      {
+        'type': ScType.NodeConst
+      },
+      {
+        'type': ScType.NodeConst
+      },
+      {
+        'type': ScType.EdgeAccessVarPosPerm,
+        'src': 0,
+        'trg': keynode
+      },
+      {
+        'type': ScType.EdgeAccessConstPosPerm,
+        'src': test_template,
+        'trg': 0
+      },
+      {
+        'type': ScType.EdgeAccessConstPosPerm,
+        'src': test_template,
+        'trg': keynode
+      },
+      {
+        'type': ScType.EdgeAccessConstPosPerm,
+        'src': test_template,
+        'trg': 2
+      },
+      {
+        'type': ScType.EdgeAccessConstPosPerm,
+        'src': 0,
+        'trg': 1
+      }
+    ]
+    elements = yield self.cmd_create_elements(client, params)
+    elements = elements['payload']
+    self.assertEqual(len(elements), len(params))
+
+    def check_search_results(result):
+      self.assertTrue(result['status'])
+      result = result['payload']
+      aliases = result['aliases']
+      addrs = result['addrs']
+      self.assertEqual(len(addrs), 1)
+      self.assertTrue('_node' in aliases)
+      _node = aliases['_node']
+      self.assertEqual(elements[1], addrs[0][_node])
+      self.assertEqual(elements[6], addrs[0][1])
+
+    # search by struct addr
+    result = yield self.cmd_search_template(client, test_template_value)
+    check_search_results(result)
+
+    # search by struct identifier
+    result = yield self.cmd_search_template(client, test_template_idtf)
+    check_search_results(result)
+
+  @testing.gen_test
+  def test_template_search_by_struct_with_param(self):
+    client = yield self.make_connection()
+    self.assertIsNotNone(client)
+
+    test_param_idtf = 'test_param'
+    payload = [
+      {
+        "command": "resolve",
+        "idtf": "_node",
+        "elType": ScType.NodeVar.ToInt()
+      },
+      {
+        "command": "resolve",
+        "idtf": test_param_idtf,
+        "elType": ScType.NodeConst.ToInt()
+      }
+    ]
+
+    # create var for template with _node alias
+    client.write_message(self.makeRequest(1, 'keynodes', payload))
+    response = yield client.read_message()
+
+    resObj = json.loads(response)
+    keynode = resObj['payload'][0]
+    test_param_value = resObj['payload'][1]
+    self.assertTrue(resObj['status'])
+    self.assertNotEqual(keynode, 0)
+    self.assertNotEqual(test_param_value, 0)
+
+    keynode = ScAddr(keynode)
+    test_param = ScAddr(test_param_value)
+
+    # create struct for template search and search result construction
+    params = [
+      {
+        'type': ScType.NodeConstStruct
+      },
+      {
+        'type': ScType.NodeConst
+      },
+      {
+        'type': ScType.NodeConst
+      },
+      {
+        'type': ScType.EdgeAccessVarPosPerm,
+        'src': 1,
+        'trg': keynode
+      },
+      {
+        'type': ScType.EdgeAccessConstPosPerm,
+        'src': 0,
+        'trg': 1
+      },
+      {
+        'type': ScType.EdgeAccessConstPosPerm,
+        'src': 0,
+        'trg': keynode
+      },
+      {
+        'type': ScType.EdgeAccessConstPosPerm,
+        'src': 0,
+        'trg': 3
+      },
+      {
+        'type': ScType.EdgeAccessConstPosPerm,
+        'src': 1,
+        'trg': 2
+      },
+      {
+        'type': ScType.NodeConst
+      },
+      {
+        'type': ScType.EdgeAccessConstPosPerm,
+        'src': 1,
+        'trg': 8
+      },
+      {
+        'type': ScType.EdgeAccessConstPosPerm,
+        'src': 1,
+        'trg': test_param
+      },
+    ]
+    elements = yield self.cmd_create_elements(client, params)
+    elements = elements['payload']
+    template = elements[0]
+    self.assertEqual(len(elements), len(params))
+
+    # search by struct addr without params - expect 2 search results
+    result = yield self.cmd_search_template(client, template)
+    self.assertTrue(result['status'])
+    result = result['payload']
+    aliases = result['aliases']
+    addrs = result['addrs']
+
+    self.assertEqual(len(addrs), 3)
+    self.assertTrue('_node' in aliases)
+
+    _node = aliases['_node']
+    _nodes_list = [addrs[0][_node], addrs[1][_node], addrs[2][_node]]
+    self.assertTrue(elements[2] in _nodes_list)
+    self.assertTrue(elements[8] in _nodes_list)
+    self.assertTrue(test_param_value in _nodes_list)
+
+    def verify_search_result(result, expected_addr):
+      self.assertTrue(result['status'])
+      result = result['payload']
+      addrs = result['addrs']
+      self.assertEqual(len(addrs), 1)
+      self.assertEqual(expected_addr, addrs[0][2])
+
+    # search by struct addr with ScAddr as param
+    result = yield self.cmd_search_template(client, template, {'_node': elements[2]})
+    verify_search_result(result, elements[2])
+
+    # search by struct addr with system identifier as param
+    result = yield self.cmd_search_template(client, template, {'_node': test_param_idtf})
+    verify_search_result(result, test_param_value)
+
+  @testing.gen_test
   def test_template_generate(self):
     client = yield self.make_connection()
     self.assertIsNotNone(client)
@@ -541,6 +783,270 @@ class WsJsonApiTest(testing.AsyncTestCase):
         '_edge': elements[1]
     })
     self.assertFalse(result['status'])
+
+  @testing.gen_test
+  def test_template_generate_by_struct(self):
+    client = yield self.make_connection()
+    self.assertIsNotNone(client)
+
+    test_template_idtf = 'test_template_1'
+    payload = [
+      {
+        "command": "resolve",
+        "idtf": test_template_idtf,
+        "elType": ScType.NodeConstStruct.ToInt()
+      }
+    ]
+
+    # create template struct
+    client.write_message(self.makeRequest(1, 'keynodes', payload))
+    response = yield client.read_message()
+
+    resObj = json.loads(response)
+    test_template_value = resObj['payload'][0]
+    self.assertTrue(resObj['status'])
+    self.assertNotEqual(test_template_value, 0)
+
+    test_template = ScAddr(test_template_value)
+
+    # create template construction
+    params = [
+      {
+        'type': ScType.NodeConst
+      },
+      {
+        'type': ScType.NodeVar
+      },
+      {
+        'type': ScType.EdgeAccessVarPosPerm,
+        'src': 0,
+        'trg': 1
+      },
+      {
+        'type': ScType.EdgeAccessConstPosPerm,
+        'src': test_template,
+        'trg': 0
+      },
+      {
+        'type': ScType.EdgeAccessConstPosPerm,
+        'src': test_template,
+        'trg': 1
+      },
+      {
+        'type': ScType.EdgeAccessConstPosPerm,
+        'src': test_template,
+        'trg': 2
+      }
+    ]
+    elements = yield self.cmd_create_elements(client, params)
+    elements = elements['payload']
+    self.assertEqual(len(elements), len(params))
+
+    # search by template struct addr
+    result = yield self.cmd_search_template(client, test_template_value)
+    self.assertTrue(result['status'])
+    result = result['payload']
+
+    addrs = result['addrs']
+
+    # have no any construction
+    self.assertEqual(len(addrs), 0)
+
+    # generate new construction by template addr
+    result = yield self.cmd_generate_template(client, test_template_value)
+    self.assertTrue(result['status'])
+    result = result['payload']
+    addrs = result['addrs']
+    expected = addrs[2]
+
+    # try to search generated construction
+    result = yield self.cmd_search_template(client, test_template_value)
+    self.assertTrue(result['status'])
+    result = result['payload']
+    addrs = result['addrs']
+
+    self.assertEqual(len(addrs), 1)
+    self.assertEqual(addrs[0][2], expected)
+
+    # generate new construction by template identifier
+    result = yield self.cmd_generate_template(client, test_template_idtf)
+    self.assertTrue(result['status'])
+
+    # try to search generated construction
+    result = yield self.cmd_search_template(client, test_template_value)
+    self.assertTrue(result['status'])
+    result = result['payload']
+    addrs = result['addrs']
+
+    self.assertEqual(len(addrs), 2)
+
+  @testing.gen_test
+  def test_template_generate_by_struct_with_param(self):
+    client = yield self.make_connection()
+    self.assertIsNotNone(client)
+
+    test_param_idtf = 'test_param_0'
+    payload = [
+      {
+        "command": "resolve",
+        "idtf": "_node",
+        "elType": ScType.NodeVar.ToInt()
+      },
+      {
+        "command": "resolve",
+        "idtf": test_param_idtf,
+        "elType": ScType.NodeConst.ToInt()
+      }
+    ]
+
+    # create var for template with _node alias
+    client.write_message(self.makeRequest(1, 'keynodes', payload))
+    response = yield client.read_message()
+
+    resObj = json.loads(response)
+    keynode = resObj['payload'][0]
+    test_param_value = resObj['payload'][1]
+    self.assertTrue(resObj['status'])
+    self.assertNotEqual(keynode, 0)
+    self.assertNotEqual(test_param_value, 0)
+
+    keynode = ScAddr(keynode)
+    test_param = ScAddr(test_param_value)
+
+    # create struct for template search and search result construction
+    params = [
+      {
+        'type': ScType.NodeConstStruct
+      },
+      {
+        'type': ScType.NodeConst
+      },
+      {
+        'type': ScType.EdgeAccessConstPosPerm,
+        'src': 0,
+        'trg': 1
+      },
+      {
+        'type': ScType.EdgeAccessConstPosPerm,
+        'src': 0,
+        'trg': keynode
+      },
+      {
+        'type': ScType.EdgeAccessVarPosPerm,
+        'src': 1,
+        'trg': keynode
+      },
+      {
+        'type': ScType.EdgeAccessConstPosPerm,
+        'src': 0,
+        'trg': 4
+      }
+    ]
+    elements = yield self.cmd_create_elements(client, params)
+    elements = elements['payload']
+    template = elements[0]
+    self.assertEqual(len(elements), len(params))
+
+    # search by struct addr without params - expect results not found
+    result = yield self.cmd_search_template(client, template)
+    self.assertTrue(result['status'])
+    result = result['payload']
+    addrs = result['addrs']
+    self.assertEqual(len(addrs), 0)
+
+    def verify_generation_result(result):
+      self.assertTrue(result['status'])
+      result = result['payload']
+      addrs = result['addrs']
+      aliases = result['aliases']
+      self.assertEqual(len(addrs), 3)
+      self.assertEqual(test_param_value, addrs[aliases['_node']])
+
+    # generate by struct addr with ScAddr as param
+    result = yield self.cmd_generate_template(client, template, {'_node': test_param_value})
+    verify_generation_result(result)
+
+    # generate by struct addr with system identifier as param
+    result = yield self.cmd_generate_template(client, template, {'_node': test_param_idtf})
+    verify_generation_result(result)
+
+    # search by struct addr all generation results
+    result = yield self.cmd_search_template(client, template)
+    self.assertTrue(result['status'])
+    result = result['payload']
+
+    addrs = result['addrs']
+    aliases = result['aliases']
+
+    self.assertEqual(len(addrs), 2)
+    self.assertTrue('_node' in aliases)
+    _node = aliases['_node']
+    _nodes_list = [addrs[0][_node], addrs[1][_node]]
+    self.assertEqual(test_param_value, _nodes_list[0])
+    self.assertEqual(test_param_value, _nodes_list[1])
+
+  @testing.gen_test
+  def test_template_generate_by_struct_with_specified_link_content(self):
+    client = yield self.make_connection()
+    self.assertIsNotNone(client)
+
+    params = [
+      {
+        'type': ScType.NodeConst
+      },
+      {
+        'type': ScType.NodeConstClass
+      }
+    ]
+    elements = yield self.cmd_create_elements(client, params)
+    elements = elements['payload']
+
+    self.assertEqual(len(elements), len(params))
+
+    # ..0 _~> ..3: _link;;
+    templ = [
+      [
+        ScAddr(elements[0]),
+        [ScType.EdgeAccessVarPosTemp, "_edge"],
+        [ScType.LinkVar, "_link"]
+      ],
+      [
+        ScAddr(elements[1]),
+        ScType.EdgeAccessVarPosTemp,
+        "_edge"
+      ]
+    ]
+
+    # search by template without params - expect results not found
+    result = yield self.cmd_search_template(client, templ)
+    self.assertTrue(result['status'])
+    result = result['payload']
+    addrs = result['addrs']
+    self.assertEqual(len(addrs), 0)
+
+    test_link_content = 'test_string'
+    # generate by template with specified string link content
+    generated_result = yield self.cmd_generate_template(client, templ, {
+      '_link': {'data': test_link_content, 'type': 'str'}
+    })
+    self.assertTrue(generated_result['status'])
+    generated_result = generated_result['payload']
+    generated_addrs = generated_result['addrs']
+    aliases = generated_result['aliases']
+    self.assertEqual(len(generated_addrs), 6)
+
+    result = yield self.cmd_content(client,[{'command': 'get', 'addr': generated_addrs[aliases['_link']]}])
+    self.assertTrue(result['status'])
+    result = result['payload']
+
+    self.assertEqual(result[0]['value'], test_link_content)
+    self.assertEqual(result[0]['type'], 'string')
+
+    # search by template generation results and verify results
+    search_result = yield self.cmd_search_template(client, templ)
+    self.assertTrue(search_result['status'])
+    search_result = search_result['payload']
+    self.assertEqual(generated_addrs, search_result['addrs'][0])
 
   # @testing.gen_test
   # def test_events(self):
