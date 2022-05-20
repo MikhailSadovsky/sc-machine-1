@@ -208,15 +208,11 @@ class ScJsonSocketHandler(websocket.WebSocketHandler):
     return templ
 
   def handleTemplateSearch(self, ctx, payload):
-
     templ = None
-    params = {}
     if 'templ' in payload:
-      templ = self.buildTemplate(ctx, payload['templ'])
-      params = payload['params']
+      templ = self.buildTemplate(ctx, payload['templ'], payload['params'])
     else:
       templ = self.buildTemplate(ctx, payload)
-
     # run search
     search_result = ctx.HelperSearchTemplate(templ)
     aliases = search_result.Aliases()
@@ -237,35 +233,12 @@ class ScJsonSocketHandler(websocket.WebSocketHandler):
   def handleTemplateGenerate(self, ctx, payload):
     
     templ = None
-    params = {}
+    templ_params = ScTemplateParams()
     if 'templ' in payload:
       templ = self.buildTemplate(ctx, payload['templ'])
-      params = payload['params']
+      templ_params = self.buildTemplateParams(ctx, payload['params'])
     else:
       templ = self.buildTemplate(ctx, payload)
-
-    templ_params = ScTemplateParams()
-    for alias, value in params.items():
-      if isinstance(value, str):
-        addr = ctx.HelperResolveSystemIdtf(value, ScType.Unknown)
-        if not addr.IsValid():
-          raise ValueError(f"element with identifier {value} doesn't exist")
-        templ_params.Add(alias, addr)
-      elif isinstance(value, int):
-        templ_params.Add(alias, ScAddr(value))
-      else:
-        contentType = value['type']
-        data = value['data']
-
-        if contentType == 'float':
-          data = float(data)
-        elif contentType == 'int':
-          data = int(data)
-        elif contentType == 'string':
-          data = str(data)
-        link = ctx.CreateLink()
-        ctx.SetLinkContent(link, data)
-        templ_params.Add(alias, link)
 
     # run search
     gen_result = ctx.HelperGenTemplate(templ, templ_params)
@@ -288,16 +261,7 @@ class ScJsonSocketHandler(websocket.WebSocketHandler):
 
       if t == 'set':
         a = ScAddr(cmd['addr'])
-        contentType = cmd['type']
-        value = cmd['data']
-
-        if contentType == 'float':
-          value = float(value)
-        elif contentType == 'int':
-          value = int(value)
-        elif contentType == 'string':
-          value = str(value)
-
+        value = self.getContentTypeValue(cmd['type'], cmd['data'])
         result.append(ctx.SetLinkContent(a, value))
         
       elif t == 'get':
@@ -379,12 +343,13 @@ class ScJsonSocketHandler(websocket.WebSocketHandler):
 
     return result
 
-  def buildTemplate(self, ctx, templPayload):
+  def buildTemplate(self, ctx, templPayload, params=None):
 
     if isinstance(templPayload, str):
       # build from SCs
       return ctx.HelperBuildTemplate(templPayload)
     elif 'type' in templPayload:
+      templ_params = self.buildTemplateParams(ctx, params)
       type = templPayload['type']
       if type == 'addr':
         # build from SC-structure ScAddr
@@ -395,15 +360,46 @@ class ScJsonSocketHandler(websocket.WebSocketHandler):
           raise ValueError(f"template with addr value {addr_value} doesn't exist")
         elif not type == ScType.NodeConstStruct:
           raise ValueError(f"element with addr value {addr_value} isn't structure")
-        return ctx.HelperBuildTemplate(addr)
+        return ctx.HelperBuildTemplate(addr, templ_params)
       elif type == 'idtf':
         # build from SC-structure identifier
         idtf = templPayload['value']
         addr = ctx.HelperResolveSystemIdtf(idtf, ScType.Unknown)
         if not addr.IsValid():
           raise ValueError(f"template with identifier {idtf} doesn't exist")
-        return ctx.HelperBuildTemplate(addr)
+        return ctx.HelperBuildTemplate(addr, templ_params)
     else:
       # build from template triples
       return self.makeTemplate(templPayload)
 
+  def buildTemplateParams(self, ctx, params):
+    templ_params = ScTemplateParams()
+    if params:
+      for alias, value in params.items():
+        if isinstance(value, str):
+          # param is an identifier
+          addr = ctx.HelperResolveSystemIdtf(value, ScType.Unknown)
+          if not addr.IsValid():
+            raise ValueError(f"element with identifier {value} doesn't exist")
+          templ_params.Add(alias, addr)
+        elif isinstance(value, int):
+          # param is ScAddr value
+          templ_params.Add(alias, ScAddr(value))
+        else:
+          # param is link content that should be generated
+          data = self.getContentTypeValue(value['type'], value['data'])
+          link = ctx.CreateLink()
+          ctx.SetLinkContent(link, data)
+          templ_params.Add(alias, link)
+
+    return templ_params
+
+  def getContentTypeValue(self, content_type, value):
+    if content_type == 'float':
+      value = float(value)
+    elif content_type == 'int':
+      value = int(value)
+    elif content_type == 'string':
+      value = str(value)
+
+    return value
