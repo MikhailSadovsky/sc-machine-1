@@ -1,5 +1,6 @@
 ### Initialize
 To initialize your repo do:
+
  * make fork from `https://github.com/ostis-ai/sc-machine`
  * clone your fork to your machine and prepare
 ```sh
@@ -26,6 +27,7 @@ git rebase master
 ```
 
 If you have any problems, then:
+
 * redo
 ```sh
 git rebase --abort

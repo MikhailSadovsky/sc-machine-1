@@ -4,6 +4,7 @@ There is a code generator that allows to create some common code by using metada
 For example if you run it for a file `text.h` it would produce a file `text.generated.h`
 
 To make a metadata for you code you can use this set of macros:
+
 * **SC_CLASS** - allows you to specify metadata for a class;
 * **SC_GENERATED_BODY** - macros that need to be used after **SC_CLASS**, because it would be replaced in during compilation time with generated declaration for this class;
 * **SC_PROPERTY** - allows to specify metadata for members of a class (including static members).

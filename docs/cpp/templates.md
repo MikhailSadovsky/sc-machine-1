@@ -1,6 +1,7 @@
 
 Templates is a very powerful mechanism to work with semantic network (graph). You can search and generate any constructions using templates.
 There are list of available classes to work with templates:
+
 * `ScTemplate` - class that represents template in C++ code;
 * `ScTemplateParams` - parameters that contains values of variables in template. This class usually used when you generate construction by template;
 * `ScTemplateSearchResult` - contains result of search by template (list of found constructions);
@@ -11,15 +12,18 @@ There are list of available classes to work with templates:
 Class to work with templates in c++. Before reading this paragraph you need to read common [information about types](el_types.md).
 
 Let use `f` symbols for constant parameter of template. Let use `a` symbol for a variable parameter of template. Then template to search all output edges from specified sc-element will be a triple:
+
 * where first element is known `f`;
 * second and third elements need to be found `a`.
 
 There are possible 3 types of simple templates:
+
 * `f_a_a` - template to find all outgoing edges from a specified sc-element;
 * `f_a_f` - template to find all edges between two specified sc-elements;
 * `a_a_f` - template to find all ingoing edges to a specified sc-element.
 
 There are some methods available for `ScTemplate` class:
+
 * `triple` - method that adds triple construction into template. There are some examples of using this function to produce simple templates:
 
 <table>
@@ -114,6 +118,7 @@ templ.Triple(
 In code you can see a construction `ScType::NODE_VAR >> "_device_instance"` - this is a naming for a template element. It allows to set name for a specified sc-element in template, and use it many times in different triples. You can see, that in the second triple we use this name `"_device_instance"`. That means, that we need to place search result from a first triple into the second. So the second triple is a `f_a_f` style triple.
 
 So if you want to use the same element `_x` in different triples, and you doesn't know it `ScAddr`, then just use two main rules:
+
 * set name of this element in a first occurrence of this element in template triples. You need to use `>>` operator to do this (see code below, last element of first triple);
 * when you need to use named element in next triples, then just use it name instread of `ScType` or `ScAddr` (see code below, first element if second triple).
 

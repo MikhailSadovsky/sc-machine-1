@@ -124,6 +124,7 @@ namespace nl
 ```
 
 **SC_AGENT_ACTION_IMPLEMENTATION** - is a macros that insert generated code an minimize work. You just insert this one (with class name as parameter), and implement it like a function. During implementation you can use such variables:
+
 * `requestAddr` - `ScAddr` of command (action) instance that was initiated;
 * `resultAddr` - `ScAddr` of sc-structure that designate command (action) result;
 * `mMemoryCtx` - memory context that can be used to work with `ScMemory`.
